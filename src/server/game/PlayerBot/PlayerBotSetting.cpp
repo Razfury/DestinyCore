@@ -380,6 +380,8 @@ bool PlayerBotSetting::MatchEquipmentSlot(uint8 pos, const ItemTemplate* itemTem
 		break;
 	case InventoryType::INVTYPE_2HWEAPON:
 	case InventoryType::INVTYPE_WEAPONMAINHAND:
+    case InventoryType::INVTYPE_RANGED:
+    case InventoryType::INVTYPE_RANGEDRIGHT:
 		if (slot == EquipmentSlots::EQUIPMENT_SLOT_MAINHAND)
 			return true;
 		break;
@@ -388,8 +390,6 @@ bool PlayerBotSetting::MatchEquipmentSlot(uint8 pos, const ItemTemplate* itemTem
 		if (slot == EquipmentSlots::EQUIPMENT_SLOT_OFFHAND)
 			return true;
 		break;
-	case InventoryType::INVTYPE_RANGED:
-	case InventoryType::INVTYPE_RANGEDRIGHT:
 	case InventoryType::INVTYPE_HOLDABLE:
 	case InventoryType::INVTYPE_THROWN:
 	case InventoryType::INVTYPE_RELIC:
