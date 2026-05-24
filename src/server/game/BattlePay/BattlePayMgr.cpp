@@ -29,6 +29,8 @@
 #include "CollectionMgr.h"
 #include <sstream>
 #include "ObjectGuid.h"
+#include "Item.h"
+#include "Mail.h"
 
 using namespace Battlepay;
 
@@ -103,10 +105,48 @@ void BattlepayManager::ProcessDelivery(Purchase * purchase)
     switch (product.WebsiteType)
     {
     case Battlepay::Item:
-        for (auto const& itr : product.Items)
-            if (player)
+    {
+        if (player)
+        {
+            for (auto const& itr : product.Items)
                 player->AddItem(itr.ItemID, itr.Quantity);
+        }
+        else if (!purchase->TargetCharacter.IsEmpty())
+        {
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+
+            MailDraft draft(productDisplay->Name1, "Your BattlePay purchase has been delivered.");
+
+            for (auto const& itr : product.Items)
+            {
+                if (!itr.ItemID || !itr.Quantity)
+                    continue;
+
+                if (!sObjectMgr->GetItemTemplate(itr.ItemID))
+                {
+                    TC_LOG_ERROR("server.battlepay", "BattlePay: Product %u contains invalid item %u", product.ProductID, itr.ItemID);
+                    continue;
+                }
+
+                if (::Item* item = ::Item::CreateItem(itr.ItemID, itr.Quantity))
+                {
+                    item->SaveToDB(trans);
+                    draft.AddItem(item);
+                }
+            }
+
+            draft.SendMailTo(
+                trans,
+                MailReceiver(nullptr, purchase->TargetCharacter.GetCounter()),
+                MailSender(MAIL_NORMAL, 0),
+                MAIL_CHECK_MASK_COPIED
+            );
+
+            CharacterDatabase.CommitTransaction(trans);
+        }
+
         break;
+    }
     case Battlepay::Gold:
         if (player)
             player->ModifyMoney(product.CustomValue);

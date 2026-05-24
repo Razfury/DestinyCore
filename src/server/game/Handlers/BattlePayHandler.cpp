@@ -104,8 +104,6 @@ void WorldSession::SendMakePurchase(ObjectGuid targetCharacter, uint32 clientTok
     auto mgr = session->GetBattlePayMgr();
 
     auto player = session->GetPlayer();
-    if (!player)
-        return;
 
     auto accountID = session->GetAccountId();
 
@@ -128,7 +126,11 @@ void WorldSession::SendMakePurchase(ObjectGuid targetCharacter, uint32 clientTok
 
     mgr->RegisterStartPurchase(purchase);
 
-    auto accountCredits = player->GetBattlePayCredits();
+    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BATTLE_PAY_ACCOUNT_CREDITS);
+    stmt->setUInt32(0, session->GetBattlenetAccountId());
+    PreparedQueryResult result = LoginDatabase.Query(stmt);
+
+    uint32 accountCredits = result ? result->Fetch()[0].GetUInt32() : 0;
     auto purchaseData = mgr->GetPurchase();
     if (!accountCredits)
     {
@@ -142,7 +144,7 @@ void WorldSession::SendMakePurchase(ObjectGuid targetCharacter, uint32 clientTok
         return;
     }
 
-    if (!product.Items.empty())
+    if (player && !product.Items.empty())
     {
         if (product.Items.size() > GetBagsFreeSlots(player))
         {
@@ -152,13 +154,16 @@ void WorldSession::SendMakePurchase(ObjectGuid targetCharacter, uint32 clientTok
         }
     }
 
-    for (auto itr : product.Items)
+    if (player)
     {
-        if (mgr->AlreadyOwnProduct(itr.ItemID))
+        for (auto itr : product.Items)
         {
-            player->SendBattlePayMessage(12, displayInfo->Name1);
-            SendStartPurchaseResponse(session, *purchaseData, Battlepay::Error::PurchaseDenied);
-            return;
+            if (mgr->AlreadyOwnProduct(itr.ItemID))
+            {
+                player->SendBattlePayMessage(12, displayInfo->Name1);
+                SendStartPurchaseResponse(session, *purchaseData, Battlepay::Error::PurchaseDenied);
+                return;
+            }
         }
     }
 
@@ -210,14 +215,19 @@ void WorldSession::HandleBattlePayConfirmPurchase(WorldPackets::BattlePay::Confi
     }
 
     auto player = GetPlayer();
-    auto accountBalance = player->GetBattlePayCredits();
+
+    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BATTLE_PAY_ACCOUNT_CREDITS);
+    stmt->setUInt32(0, GetBattlenetAccountId());
+    PreparedQueryResult result = LoginDatabase.Query(stmt);
+
+    uint32 accountBalance = result ? result->Fetch()[0].GetUInt32() : 0;
     if (accountBalance < static_cast<int64>(purchase->CurrentPrice))
     {
         SendPurchaseUpdate(this, *purchase, Battlepay::Error::PurchaseDenied);
         return;
     }
 
-    if (product.WebsiteType == Battlepay::BattlePet && player->HasSpell(product.CustomValue))
+    if (player && product.WebsiteType == Battlepay::BattlePet && player->HasSpell(product.CustomValue))
     {
         SendPurchaseUpdate(this, *purchase, Battlepay::Error::TooManyTokens);
         return;
@@ -228,7 +238,7 @@ void WorldSession::HandleBattlePayConfirmPurchase(WorldPackets::BattlePay::Confi
 
     auto displayInfo = sBattlePayDataStore->GetDisplayInfo(product.DisplayInfoID);
 
-    if (!product.Items.empty())
+    if (player && !product.Items.empty())
     {
         if (product.Items.size() > GetBagsFreeSlots(player))
         {
@@ -238,13 +248,16 @@ void WorldSession::HandleBattlePayConfirmPurchase(WorldPackets::BattlePay::Confi
         }
     }
 
-    for (auto itr : product.Items)
+    if (player)
     {
-        if (GetBattlePayMgr()->AlreadyOwnProduct(itr.ItemID))
+        for (auto itr : product.Items)
         {
-            player->SendBattlePayMessage(12, displayInfo->Name1);
-            SendStartPurchaseResponse(this, *purchase, Battlepay::Error::PurchaseDenied);
-            return;
+            if (GetBattlePayMgr()->AlreadyOwnProduct(itr.ItemID))
+            {
+                player->SendBattlePayMessage(12, displayInfo->Name1);
+                SendStartPurchaseResponse(this, *purchase, Battlepay::Error::PurchaseDenied);
+                return;
+            }
         }
     }
 
@@ -253,8 +266,13 @@ void WorldSession::HandleBattlePayConfirmPurchase(WorldPackets::BattlePay::Confi
     GetBattlePayMgr()->SavePurchase(purchase);
     GetBattlePayMgr()->ProcessDelivery(purchase);
 
-    player->UpdateBattlePayCredits(purchase->CurrentPrice);
-    player->SendBattlePayMessage(1, displayInfo->Name1);
+    if (player)
+    {
+        player->UpdateBattlePayCredits(purchase->CurrentPrice);
+        player->SendBattlePayMessage(1, displayInfo->Name1);
+    }
+
+    GetBattlePayMgr()->SendAccountCredits();
     GetBattlePayMgr()->SendProductList();
 }
 
